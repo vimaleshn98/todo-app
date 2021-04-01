@@ -5,104 +5,52 @@ pipeline{
        jdk 'JDK11'
    }
     stages{
-        stage('Fetch project from github'){
+        stage("build"){
             steps{
-                git branch: 'master', url: 'https://github.com/sujjadshaik/todo-app.git'
+                sh 'mvn clean'
+                sh 'mvn -f app/pom.xml compile'
             }
-                
-        }
-        stage('Maven package'){
-            steps{
-                sh 'mvn -f app/pom.xml package'
-
-            }
-        }
-        stage('sonar analysis'){
-            steps{
-                withSonarQubeEnv('sonarQube'){
-                    sh 'mvn -f app/pom.xml sonar:sonar'
+            post{
+                success{
+                    echo "========Maven compile stage executed successfully========"
                 }
-            }
-        }
-        stage('deploy to artifactor'){
-            steps{
-                rtUpload (
-            serverId: 'ARTIFACTORY-SERVER',
-            spec: '''{
-                 "files": [
-                             {
-                                "pattern": "app/target/*.war",
-                                "target": "art-doc-dev-loc/todo-app/"
-                            }
-                        ]
-            }''',
-            )
-
-            }
-        }
-        stage('download artifact'){
-            steps{
-                 rtDownload (
-                 serverId: "ARTIFACTORY-SERVER",
-                spec:"""{
-                     "files": [
-                                {
-                                    "pattern": "art-doc-dev-loc/todo-app/**",
-                                    "target": "app/artifacts/"      
-                                }
-                            ]
-              }"""
-            )
-            
-            }
-        }
-
-        
-        stage('Docker build'){
-            steps{
-               
-                    sh 'docker image prune -a --force'
-                    sh 'docker-compose build'
-                
-                
-            }
-        }
-        stage('Pushing images to docker hub'){
-            steps{
-                
-
-                withCredentials([string(credentialsId: 'docker-pwd', variable: 'dockerHubPWD')]) {
-                            // some block
-                   sh "docker login -u sujjad -p ${dockerHubPWD}"
-
+                failure{
+                    echo "========Maven compile stage execution failed========"
                 }
-                sh "docker commit cisample_app_1 sujjad/todo-app:v${env.BUILD_ID}"
-                sh "docker push sujjad/todo-app:v${env.BUILD_ID}"
-
-            }
-        }
-        stage('deploying it to kubernetes'){
-            steps{
-                sh 'chmod +x change-tag.sh'
-                sh """./change-tag.sh v${env.BUILD_ID}"""
-                sh 'cat k8s/api-deployment.yaml'
-                withKubeConfig(caCertificate: '', clusterName: '', contextName: '', credentialsId: 'kube-azure', namespace: '', serverUrl: 'https://content-jackal-k8s-656e8d92.hcp.westus2.azmk8s.io:443') {
-                                // some block
-                    sh 'kubectl apply -f k8s/database-deployment.yaml'
-                    
-                }
-                sleep(120)
-                withKubeConfig(caCertificate: '', clusterName: '', contextName: '', credentialsId: 'kube-azure', namespace: '', serverUrl: 'https://content-jackal-k8s-656e8d92.hcp.westus2.azmk8s.io:443') {
-                                // some block
-                    sh 'kubectl apply -f k8s/api-deployment.yaml'
-                    sh 'kubectl get pods'
-                    sh 'kubectl get svc'
-                    
-                }
-
             }
         }
     
+     stage("Test"){
+            steps{
+                echo "Maven Test"
+                sh 'mvn -f app/pom.xml -Dmaven.test.failure.ignore=true  test'
+                
+            }
+            post{
+                success{
+                    echo "========Maven Test stage executed successfully========"
+                     junit 'app/target/surefire-reports/*.xml'
 
+                }
+                failure{
+                    echo "========Maven Test stage execution failed========"
+                     junit 'app/target/surefire-reports/*.xml'
+                }
+            }
+        }
+       
+        
+
+    }
+    post{
+        always{
+            echo "========always========"
+        }
+        success{
+            echo "========pipeline executed successfully ========"
+        }
+        failure{
+            echo "========pipeline execution failed========"
+        }
     }
 }
